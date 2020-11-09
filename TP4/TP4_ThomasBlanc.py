@@ -1,5 +1,19 @@
 import maya.cmds as cmds
 import functools as func
+import math
+
+
+def frange(x, y, jump=1.0):
+    '''Range for floats.'''
+    i = 0.0
+    x = float(x)  # Prevent yielding integers.
+    x0 = x
+    epsilon = jump / 2.0
+    yield x  # yield always first value
+    while x + epsilon < y:
+        i += 1.0
+        x = x0 + i * jump
+        yield x
 
 
 class TempleGenerator:
@@ -14,6 +28,12 @@ class TempleGenerator:
         self.stairsNb = 4
         self.stairsGrowth = 1.0
 
+        self.decorationEnabled = True
+        self.decorationHeight = 1.0
+        self.decorationNb = 3
+
+        self.lastTemple = {}
+
     def updateValues(self, UI):
         self.columnsX = cmds.intSliderGrp(UI.columnsX, q=True, v=True)
         self.columnsY = cmds.intSliderGrp(UI.columnsY, q=True, v=True)
@@ -23,12 +43,17 @@ class TempleGenerator:
 
         self.stairsEnabled = cmds.checkBoxGrp(
             UI.stairsEnabled, q=True, v1=True)
-
         self.stairsHeight = cmds.floatSliderGrp(
             UI.stairsHeight, q=True, v=True)
         self.stairsNb = cmds.intSliderGrp(UI.stairsNb, q=True, v=True)
         self.stairsGrowth = cmds.floatSliderGrp(
             UI.stairsGrowth, q=True, v=True)
+
+        self.decorationEnabled = cmds.checkBoxGrp(
+            UI.decorationEnabled, q=True, v1=True)
+        self.decorationHeight = cmds.floatSliderGrp(
+            UI.decorationHeight, q=True, v=True)
+        self.decorationNb = cmds.intSliderGrp(UI.decorationNb, q=True, v=True)
 
     def generate(self, UI):
         self.updateValues(UI)
@@ -94,12 +119,82 @@ class TempleGenerator:
                     (stairsZ - i * self.stairsHeight)
                 cmds.move(0, stairPos, 0)
         else:
-            templeArr += cmds.polyCube(h=0.5, width=templeLenght + 2, depth=templeWidth + 2)
+            templeArr += cmds.polyCube(h=0.5,
+                                       width=templeLenght + 2, depth=templeWidth + 2)
             cmds.move(0, 0.25, 0)
+
+        # ROOF ===========================================================
+        roofHeight = self.columnsHeight + stairsZ
+        templeArr += cmds.polyCube(h=0.5,
+                                   width=templeLenght + 2, depth=templeWidth + 2)
+        cmds.move(0, roofHeight + 0.25, 0)
+
+        if(self.decorationEnabled):
+            roofHeight += 0.5
+            templeArr += cmds.polyCube(h=self.decorationHeight,
+                                       width=templeLenght + 1, depth=templeWidth + 1)
+            cmds.move(0, roofHeight + self.decorationHeight/2, 0)
+
+            decoration = cmds.polyCylinder(
+                h=self.decorationHeight, r=0.1, sa=10)
+            rangeDeco = 0.15 * (self.decorationNb/2)
+            for i in range(-templeLenght/2, templeLenght/2 + 1, self.step):
+                for j in frange(i - rangeDeco, i + rangeDeco, 0.15):
+                    d_left = cmds.duplicate(decoration)
+                    templeArr += d_left
+                    cmds.move(j, roofHeight + self.decorationHeight /
+                              2, templeWidth/2 + 0.5, d_left)
+                    d_right = cmds.duplicate(decoration)
+                    templeArr += d_right
+                    cmds.move(j, roofHeight + self.decorationHeight /
+                              2, - (templeWidth/2 + 0.5), d_right)
+            for i in range(-templeWidth/2, templeWidth/2 + 1, self.step):
+                for j in frange(i - rangeDeco, i + rangeDeco, 0.15):
+                    d_left = cmds.duplicate(decoration)
+                    templeArr += d_left
+                    cmds.move(templeLenght/2 + 0.5, roofHeight + self.decorationHeight /
+                              2, j, d_left)
+                    d_right = cmds.duplicate(decoration)
+                    templeArr += d_right
+                    cmds.move(- (templeLenght/2 + 0.5), roofHeight + self.decorationHeight /
+                              2, j, d_right)
+            roofHeight += self.decorationHeight + 0.125
+            templeArr += cmds.polyCube(h=0.25,
+                                       width=templeLenght + 2, depth=templeWidth + 2)
+            cmds.move(0, roofHeight, 0)
+
+            cmds.hide(decoration)
+
+
+        # === Pythagore ===
+        roofHauteur = 4
+        roofWidth = (templeWidth + 5)/2.0
+        roofHypotenus = math.sqrt(pow(roofWidth, 2) + pow(roofHauteur, 2))
+        roofAngle = math.degrees(math.cos(roofWidth/roofHypotenus))
+        roofHeight += 0.5 + roofHauteur/2.0
+
+        # === Roof creation ===
+        # templeArr += cmds.polyCube(h=0.5,
+        #                            width=templeLenght + 3, depth=roofHypotenus)
+        # cmds.move(0, roofHeight, (roofWidth/2.0))
+        # cmds.rotate(roofAngle, 0, 0)
+
+        # templeArr += cmds.polyCube(h=0.5,
+        #                            width=templeLenght + 3, depth=roofHypotenus)
+        # cmds.move(0, roofHeight, -(roofWidth/2.0))
+        # cmds.rotate(-roofAngle, 0, 0)
+
+        templeArr += cmds.polyCube(h=1, width=templeLenght + 3, depth=1)
+        cmds.move(0, roofHeight + roofHauteur + 0.5, 0)
 
         cmds.hide(pillar)
 
-        cmds.group(*templeArr, n="Temple")
+        self.lastTemple = cmds.group(*templeArr, n="Temple")
+
+    def regenerate(self, UI):
+        cmds.select(self.lastTemple)
+        cmds.delete()
+        self.generate(UI)
 
 
 class UI:
@@ -147,16 +242,6 @@ class UI:
         cmds.separator(style="none", h=10)
 
         # =========================================================
-        # PILLAR
-        # =========================================================
-        cmds.frameLayout(label='Pillar')
-        cmds.columnLayout(adj=True)
-
-        cmds.setParent('..')
-        cmds.setParent('..')
-        cmds.separator(style="none", h=10)
-
-        # =========================================================
         # STAIRS
         # =========================================================
         cmds.frameLayout(label='Stairs')
@@ -190,10 +275,18 @@ class UI:
         # =========================================================
         cmds.frameLayout(label='Roof')
         cmds.columnLayout(adj=True)
-        cmds.checkBoxGrp(ncb=1, l1="Enable roof decorations", v1=True, cal=(1, "left"),
-                         ofc="", onc="")
-        cmds.intSliderGrp(field=True, label='Number of decorations',
-                          min=1, value=3, cal=(1, "left"))
+        self.decorationHeight = cmds.floatSliderGrp(field=True, label='decoration height',
+                                                    min=0.5, max=3.0, value=self.generator.decorationHeight, cal=(1, "left"))
+        self.decorationNb = cmds.intSliderGrp(field=True, label='Number of decorations',
+                                              min=1, max=5, value=self.generator.decorationNb, cal=(1, "left"))
+
+        if(not self.generator.decorationEnabled):
+            self.toggle(self.decorationHeight, self.decorationNb)
+
+        self.decorationEnabled = cmds.checkBoxGrp(ncb=1, l1="Enable roof decorations", v1=self.generator.decorationEnabled, cal=(1, "left"),
+                                                  ofc=func.partial(
+                                                      self.toggle, self.decorationHeight, self.decorationNb),
+                                                  onc=func.partial(self.toggle, self.decorationHeight, self.decorationNb))
         cmds.setParent('..')
         cmds.setParent('..')
 
@@ -202,7 +295,8 @@ class UI:
         cmds.columnLayout(adjustableColumn=True,
                           columnAttach=('both', 5), rowSpacing=10)
         cmds.button(l="Generate new temple", c=self.generate, align="center")
-        cmds.button(l="Regenerate temple", c=self.generate, align="center")
+        cmds.button(l="Regenerate temple", c=func.partial(
+            self.regenerate, self), align="center")
         cmds.setParent('..')
         cmds.separator(style="none", h=10)  # indentation
 
@@ -210,6 +304,8 @@ class UI:
 
     def generate(self, *args):
         self.generator.generate(self)
+    def regenerate(self, *args):
+        self.generator.regenerate(self)
 
     @staticmethod
     def toggle(*args):
